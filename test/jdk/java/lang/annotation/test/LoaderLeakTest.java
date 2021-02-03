@@ -26,9 +26,9 @@
  * @bug 5040740
  * @summary annotations cause memory leak
  * @author gafter
- * @library /test/lib
- * @build jdk.test.lib.process.*
- * @run testng LoaderLeakTest
+ * @library /test/lib /test/jdk/java/lang/annotation/repository
+ * @build jdk.test.lib.process.* A B C
+ * @run testng/othervm LoaderLeakTest
 */
 
 import jdk.test.lib.Utils;
@@ -43,7 +43,7 @@ import java.nio.file.*;
 import java.util.*;
 
 public class LoaderLeakTest {
-
+/*
     @BeforeClass
     public void initialize() throws Exception {
         final Path TEST_CLASSES_PATH = Paths.get(Utils.TEST_CLASSES).toAbsolutePath();
@@ -58,14 +58,16 @@ public class LoaderLeakTest {
             );
         }
     }
-
+*/
     @Test
     public void testWithoutReadingAnnotations() throws Throwable {
+        System.out.println("classpath from inside test 1 is " + System.getProperty("java.class.path"));
         runJavaProcessExpectSuccessExitCode("Main");
     }
 
     @Test
     public void testWithReadingAnnotations() throws Throwable {
+        System.out.println("classpath from inside test 2 is " + System.getProperty("java.class.path"));
         runJavaProcessExpectSuccessExitCode("Main",  "foo");
     }
 
@@ -83,6 +85,7 @@ public class LoaderLeakTest {
 
 class Main {
     public static void main(String[] args) throws Exception {
+        System.out.println("classpath from inside main is " + System.getProperty("java.class.path"));
         for (int i=0; i<100; i++)
             doTest(args.length != 0);
     }
@@ -92,6 +95,7 @@ class Main {
         // URL[] path = { classes };
         // URLClassLoader loader = new URLClassLoader(path);
         ClassLoader loader = new SimpleClassLoader();
+        //SimpleClassLoader loader = new SimpleClassLoader();
         WeakReference<Class<?>> c = new WeakReference<Class<?>>(loader.loadClass("C"));
         if (c.get() == null) throw new AssertionError();
         if (c.get().getClassLoader() != loader) throw new AssertionError();
@@ -118,15 +122,6 @@ class Main {
     }
 }
 
-@java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
-@interface A {
-    B b();
-}
-
-@interface B {}
-
-@A(b=@B()) class C {}
-
 class SimpleClassLoader extends ClassLoader {
 
     private Map<String, Class<?>> classes = new HashMap<>();
@@ -137,12 +132,12 @@ class SimpleClassLoader extends ClassLoader {
     private byte getClassImplFromDataBase(String className)[] {
         byte result[];
         try {
-            FileInputStream fi = new FileInputStream("classes/"+className+".class");
+            FileInputStream fi = new FileInputStream("repository/" +className+".class");
             result = new byte[fi.available()];
             fi.read(result);
             return result;
         } catch (Exception e) {
-
+            System.err.printf("attempt to load class %s from test custom database failed%n", className);
             /*
              * If we caught an exception, either the class wasnt found or it
              * was unreadable by our process.
@@ -153,6 +148,7 @@ class SimpleClassLoader extends ClassLoader {
 
     @Override
     public Class<?> loadClass(String className) throws ClassNotFoundException {
+        System.out.println("1 should go here, loading"+className);
         return (loadClass(className, true));
     }
 
@@ -162,19 +158,26 @@ class SimpleClassLoader extends ClassLoader {
         Class<?> result;
         byte  classData[];
 
+        System.out.println("2 checking cache");
         /* Check our local cache of classes */
         result = classes.get(className);
         if (result != null) {
             return result;
         }
 
+
+        System.out.println("3 not found in cache");
         /* Check with the primordial class loader */
         try {
             result = super.findSystemClass(className);
+
+            System.out.println("4 parent has it");
             return result;
         } catch (ClassNotFoundException e) {
         }
 
+
+        System.out.println("5 parent does not have it");
         /* Try to load it from our repository */
         classData = getClassImplFromDataBase(className);
         if (classData == null) {
